@@ -2,13 +2,14 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import sqlite3
 import numpy as np
+import cv2
 from ai_models.age_gender_detection import detect_age_gender
 from ai_models.fraud_detection import detect_fraud
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for frontend-backend communication
+CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins
 
-# SQLite Database Setup
+# Initialize Database
 def init_db():
     conn = sqlite3.connect('transactions.db')
     c = conn.cursor()
@@ -19,7 +20,7 @@ def init_db():
 
 init_db()
 
-# Endpoint for Transaction Processing
+# Transaction Endpoint
 @app.route('/transaction', methods=['POST'])
 def process_transaction():
     data = request.json
@@ -41,10 +42,14 @@ def process_transaction():
 
     return jsonify({"status": "Transaction Successful", "fraud_flag": 0})
 
-# Endpoint for Biometric Verification
+# Biometric Verification Endpoint
 @app.route('/verify', methods=['POST'])
 def verify_biometric():
-    image = request.files['image'].read()
+    file = request.files['image']
+    npimg = np.frombuffer(file.read(), np.uint8)
+    image = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+
+    # Age and Gender Detection
     age, gender = detect_age_gender(image)
     return jsonify({"age": age, "gender": gender})
 
