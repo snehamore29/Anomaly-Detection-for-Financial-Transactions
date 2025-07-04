@@ -1,3 +1,7 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import sqlite3
@@ -7,9 +11,8 @@ from ai_models.age_gender_detection import detect_age_gender
 from ai_models.fraud_detection import detect_fraud
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins
+CORS(app, resources={r"/*": {"origins": "*"}})
 
-# Initialize Database
 def init_db():
     conn = sqlite3.connect('transactions.db')
     c = conn.cursor()
@@ -20,38 +23,47 @@ def init_db():
 
 init_db()
 
-# Transaction Endpoint
 @app.route('/transaction', methods=['POST'])
 def process_transaction():
     data = request.json
-    amount = data['amount']
-    recipient = data['recipient']
+    amount = float(data.get('amount', 0))
+    recipient = data.get('recipient', '')
 
-    # Fraud Detection
     fraud_flag = detect_fraud(amount)
-    if fraud_flag:
-        return jsonify({"status": "Fraud Detected", "fraud_flag": 1})
 
-    # Save Transaction to Database
     conn = sqlite3.connect('transactions.db')
     c = conn.cursor()
     c.execute("INSERT INTO transactions (amount, recipient, fraud_flag) VALUES (?, ?, ?)",
-              (amount, recipient, fraud_flag))
+              (amount, recipient, int(fraud_flag)))
     conn.commit()
     conn.close()
 
-    return jsonify({"status": "Transaction Successful", "fraud_flag": 0})
+    status = "Fraud Detected" if fraud_flag else "Transaction Successful"
+    return jsonify({"status": status, "fraud_flag": int(fraud_flag)})
 
-# Biometric Verification Endpoint
 @app.route('/verify', methods=['POST'])
 def verify_biometric():
-    file = request.files['image']
-    npimg = np.frombuffer(file.read(), np.uint8)
-    image = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+    if 'image' not in request.files:
+        print("❌ No image uploaded in request.files")
+        return jsonify({"error": "No image uploaded"}), 400
 
-    # Age and Gender Detection
-    age, gender = detect_age_gender(image)
-    return jsonify({"age": age, "gender": gender})
+    try:
+        file = request.files['image']
+        print("✅ Image received:", file.filename)
+
+        npimg = np.frombuffer(file.read(), np.uint8)
+        image = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+
+        if image is None:
+            print("❌ Image decoding failed")
+            return jsonify({"error": "Invalid image"}), 400
+
+        age, gender = detect_age_gender(image)
+        print("✅ DeepFace result:", age, gender)
+        return jsonify({"age": age, "gender": gender})
+    except Exception as e:
+        print("❌ Error in /verify route:", e)
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
